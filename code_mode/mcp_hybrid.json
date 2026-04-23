@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "health": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "--quiet", "--isolated", "--with", "fastmcp[code-mode]", "python", "/tmp/mcp-research-local/code_mode/server_hybrid.py"]
+    }
+  }
+}

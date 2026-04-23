@@ -110,6 +110,65 @@ The ~10× improvement on every axis (calls, time, cost, tokens) comes from one f
 
 This is the clearest case. Native MCP isn't slow-but-correct; it's **structurally incapable** of this shape of task at this data size. Code mode makes it routine.
 
+### Two more configurations: hybrid and baked
+
+For servers with ≤10 tools, two natural variations on code mode are worth testing:
+
+- **Hybrid**: all 9 tools visible in the manifest *plus* an `execute` tool that can compose them via `await call_tool(name, params)`. The agent chooses per-task: direct call for a lookup, `execute` for composition. Implemented in `server_hybrid.py`.
+- **Baked**: pure code mode with `discovery_tools=[]` and the full tool catalog baked into the execute tool's description — no `search`, no `get_schema`, just `execute` with a big docstring. Recommended in the fastmcp docs as a pattern for "very simple servers." Implemented in `server_baked.py`.
+
+Results, Sonnet 4.6, same three tasks (`ok` = `is_error` flag from stream-json — **does not** imply the answer was correct; correctness column added by manual inspection):
+
+```
+run                              calls   secs   $cost     in      out     cache  ok  correct?
+native_t1_trivial_sonnet             1    7.2  0.0214    399      473     6604   y   ✅ 1859
+native_t2_rate_rank_sonnet          52  307.2  0.7109   9997    26021    80146   y   ✅
+native_t3_stats_sonnet             108  385.6  1.8306 258701    35294   165010   !   ❌ context overflow
+codemode_t1_trivial_sonnet           4   14.2  0.0279    402      648    15980   y   ✅ 1859
+codemode_t2_rate_rank_sonnet         9   32.2  0.0661    437     1882    49338   y   ✅
+codemode_t3_stats_sonnet             6   51.3  0.1072    455     4496    36022   y   ✅
+hybrid_t1_trivial_sonnet             1    6.9  0.0211    399      415     6912   y   ✅ 1859
+hybrid_t2_rate_rank_sonnet           9   44.0  0.0853    436     3105    58161   y   ✅
+hybrid_t3_stats_sonnet              24  147.4  0.3209   9939    10086   207390   y   ✅
+baked_t1_trivial_sonnet            144  597.9  1.6751  78195    27572  2219691   y   ❌ gave up
+baked_t2_rate_rank_sonnet          164  522.3  1.4015  79957    30017  1156876   y   ❌ gave up
+baked_t3_stats_sonnet               95  346.5  0.9140  45072    17064  1077211   y   ❌ gave up
+```
+
+**Hybrid: the best shape for mixed workloads.**
+
+- Task 1 (trivial): **1 call, 6.9s, $0.021** — matches native exactly, because the model sees `cases_query` in the manifest and calls it directly.
+- Task 2 (composition): 9 calls, 44s, $0.085 — roughly equivalent to pure code mode (9 calls, 32s, $0.066). Slightly slower because the model made two direct tool calls before switching to `execute` for the aggregation.
+- Task 3 (statistical): 24 calls, 147s, $0.32 — succeeded (code mode: 6 calls, 51s, $0.107). The extra round-trips came from the model fumbling the sandbox's `return` semantics (several `execute({"code": "x = 42; print(x)"})` probes visible in the trace) before settling on the right pattern.
+
+So hybrid gets you the trivial-task win *and* composition correctness, at the cost of roughly 3× overhead vs pure code mode on the hardest task. If your tool mix is dominated by lookups with occasional composition, hybrid is the right default. If composition is the common case, pure code mode is leaner.
+
+**Baked: failed on every task. Do not use this pattern as-is.**
+
+All three baked tasks completed without an error flag but produced no correct answer. The traces show why: the model never read the 1982-character tool catalog in the execute tool's description. On Task 1, Sonnet's first `execute` call was `await call_tool("query_cases", ...)` — a guessed, inverted-word-order name. When that failed, the next 143 calls worked through a long tail of guesses (`get_cases`, `list_cases`, `list_tools`, `help`, `get_countries`, ...), `ListMcpResourcesTool` probes, `print(dir())` introspection attempts, and finally an "I was unable to retrieve the requested data" apology.
+
+The fastmcp docs suggest this pattern for cases where "the LLM already knows what tools are available — maybe there are only a few, or they're described in the system prompt." In retrospect, the key phrase is **"described in the system prompt"**, not *"described in the tool's own description field."* A tool description gets very different treatment from a system prompt — the model treats it as "what this tool does" rather than "the schema of the world inside this tool." The catalog is there, the model just doesn't read it as a catalog.
+
+This is a useful negative result: **for reliable single-stage code mode, put the tool catalog in the system prompt**, not in `execute_description`. Alternatively, use the default three-stage (search + get_schema + execute) even for small catalogs — the discovery round-trips are real but at least they succeed.
+
+```
+Summary of the four shapes:
+
+  native   → one tool per capability, visible in manifest.
+             Best: trivial lookups. Fails: data-heavy aggregation (context overflow).
+
+  codemode → search + get_schema + execute, original tools hidden.
+             Best: composition and aggregation. Cost: discovery overhead on trivial lookups.
+
+  hybrid   → all tools visible + execute.
+             Best: mixed workloads where most tasks are lookups with occasional composition.
+             Cost: ~3× vs pure code mode on the hardest cases (sandbox-return fumbling).
+
+  baked    → discovery_tools=[], catalog in execute_description.
+             FAILS on all tested tasks — the model ignores the catalog in the description.
+             Would likely need to move the catalog to the system prompt to be viable.
+```
+
 ### Model tier cross-section (code mode only)
 
 Both Task 2 and Task 3 re-run with `--model haiku` and `--model opus`. Every cell succeeds; the differences are in *how* each tier gets to the right answer.
