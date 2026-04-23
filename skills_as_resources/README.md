@@ -96,7 +96,7 @@ claude --bare --model opus -p "A new engineer named Ayşe Kaya starts at Acme to
 
 Two switches worth calling out:
 
-- **`--disallowed-tools ... advisor`** — Claude Code can invoke a server-side `advisor` tool that routes the conversation to a reviewer model (Opus 4.7 in our harness). When on, it nudges the main model to check available context before acting. That behavior muddles "did the model reason its way here?" with "was it told to?" — disabling it isolates the intrinsic behavior of the main model. The user-level `/advisor off` toggle only affects the parent session; the child `claude -p` subprocess must block it explicitly.
+- **`--disallowed-tools ... advisor`** — Claude Code can invoke a server-side `advisor` tool (type `server_tool_use`, name `advisor`) that routes the conversation to a reviewer model (Opus 4.7 in our harness). When on, it nudges the main model to check available context before acting. That behavior muddles "did the model reason its way here?" with "was it told to?" — disabling it isolates the intrinsic behavior of the main model. The `/advisor off` slash command **does** cascade from the parent session to child `claude -p` subprocesses, so the CLI flag is defensive belt-and-braces: it works whether or not your account has advisor enabled, and it protects against someone flipping advisor back on mid-experiment. Not all accounts have the advisor tool available; where it isn't, the flag is a harmless no-op.
 - **`--disallowed-tools Bash Read Glob Grep`** — without these, the agent happily `ls`'s around and reads `SKILL.md` as a plain file, never touching MCP. Blocking them forces it through the MCP pathway (or through hallucination, which is the interesting failure mode).
 
 ## Findings
@@ -113,11 +113,13 @@ Same task, same server, same prompt. `--model` is the only thing that changes. A
 
 Capability does *not* imply caution. Opus's stronger priors make it *more* willing to fill gaps with plausible invention. In production, this is the worst outcome — confident actions on wrong parameters.
 
-### 2. The advisor is a partial fix but it's a confound
+### 2. The advisor fixes the behavior, and it's also complementary to the rule
 
-An earlier Sonnet run without the `advisor` block produced a clean, correct flow. Inspecting the trace revealed that Sonnet had invoked `server_tool_use: advisor`, whose review (performed by Opus 4.7) came back with the advice "list available MCP resources before executing substantive work." That advice, dropped into Sonnet's context, triggered the correct behavior.
+An earlier Sonnet run without any `advisor` block produced a clean, correct flow. Inspecting the trace revealed that Sonnet had invoked `server_tool_use: advisor` on its own initiative, whose review (performed by Opus 4.7) came back with advice to the effect of "list available MCP resources before executing substantive work." That advice, dropped into Sonnet's context, triggered the correct behavior.
 
-So the advisor works — but it's a) expensive (Opus second-opinion pass), b) not always on, c) not available outside Claude Code's runtime. Relying on it for skills discovery is not portable.
+The advisor works — but it's a) expensive (Opus second-opinion pass per call), b) configurable per-account, c) not available outside Claude Code's runtime. Relying on it for skills discovery alone is not portable.
+
+However, the advisor turns out to be **complementary** to the system-prompt rule in section 3, not merely a stronger version of it. In one re-run we accidentally left a naming mismatch in the fixtures: the user prompt said "Acme" while the server's tools and skills still referenced the older "Desia" naming. With advisor on, Sonnet caught the mismatch, paused before executing any side-effecting tool, and asked for confirmation: *"You said Acme, but every tool and runbook I have access to is for Desia. Please confirm before I create accounts in the wrong system."* The rule from section 3 ("list resources, then act") would not have caught this — it enforces sequence, not domain consistency. The advisor's more general "pause before substantive work" did. Treat the two as a layered defense: the rule is cheap and always on; the advisor is the broader-spectrum backstop when available.
 
 ### 3. A generic per-server rule fixes the whole lineup
 
