@@ -193,6 +193,68 @@ codemode_t3_stats_opus             7  37.4  0.1475    459   3097   52616   y
 
 Headline: for composition-heavy workloads, pick the model you're paying for based on cost profile, not capability fears. Haiku gets there; it just takes longer. The sandbox is doing the work that capability differences would otherwise dominate.
 
+### Skills-as-resources × code mode: a pleasant interaction
+
+A natural follow-up: what if the server exposes **both** a `CodeMode` transform *and* skill markdown files as MCP resources — e.g. a runbook that encodes the Ministry's outbreak definition? Does the agent consult the skill, or does it invent thresholds and use the most topically-named tool?
+
+This builds on the findings in [`../skills_as_resources/`](../skills_as_resources/README.md), which concluded that for *native* MCP, agents do not consult resources unless prompted. The one-line rule that fixed it there:
+
+> When you are about to use tools from an MCP server (tools named `mcp__<server>__*`), first call `ListMcpResourcesTool` on that server and read any resources that look like runbooks, skills, or instructions. MCP resources encode ordering, gotchas, and the correct parameter values that tool schemas cannot express. Do this once per server before calling its tools.
+
+#### Setup
+
+A fourth task, `t4_outbreak`, asks the agent to produce a list of (region, disease) pairs currently qualifying as a "flagged outbreak under our internal standard," with a deliberately neutral prompt — no mention of runbooks, documentation, or protocols. The server exposes one skill at `skill://outbreak-protocol/SKILL.md` encoding a deliberately non-guessable rule:
+
+- Population > 1,000,000 (smaller regions excluded as noise-dominated)
+- 7-day rate per 100k **> 60.0** (exact threshold only knowable from the skill)
+- Disease in {measles, covid19, rsv, pertussis} — flu and norovirus **excluded**
+- Source: `cases_query`, **not** `outbreak_alerts` (the alerts table is explicitly off-limits per the skill)
+
+If the agent reads the skill → produces the canonical 15-row list with correct rates.
+If it doesn't → uses the wrong disease set, wrong threshold, or worse, reads from `outbreak_alerts` which the skill explicitly forbids.
+
+Four configurations, Sonnet 4.6:
+
+| Mode | Skill read? | Right answer? | Calls | Notes |
+|---|---|---|---|---|
+| `codemode+skills`, no rule | ✅ | ✅ 15 pairs | 9 | Sonnet self-discovered the skill |
+| `codemode+skills`, with rule | ✅ | ✅ 15 pairs | 7 | Rule = no behavior change |
+| **`native+skills`, no rule** | **❌** | **❌ wrong list** | **2** | Called `outbreak_alerts` directly, included flu/norovirus, wrong format |
+| `native+skills`, with rule | ✅ | ✅ 15 pairs | 7 | Rule fixed it |
+
+#### The interesting finding
+
+**Code mode *already* prompts the model to consult resources, without the rule.** Even with a completely neutral prompt ("identify every (region, disease) pair that qualifies as flagged under our internal standard"), Sonnet ran this sequence:
+
+```
+  search("surveillance outbreak flagged")        ← code mode's search
+  → returns tools, no obvious match
+  ListMcpResourcesTool({server: "health"})       ← pivots to resource discovery
+  → sees skill://outbreak-protocol/SKILL.md
+  ReadMcpResourceTool(skill://outbreak-protocol/SKILL.md)
+  → reads the protocol
+  get_schema([regions_list, cases_query])
+  execute(...)                                   ← implements the protocol correctly
+```
+
+The hypothesis: code mode's **sparse tool surface** (only `search` / `get_schema` / `execute`) makes the model hungry for domain context. `search` alone doesn't surface a "protocol" or "runbook" hit among the tools, so the model asks "is there more context?" and checks resources. Native MCP has no such pressure — the most topically-named tool (`outbreak_alerts`) looks like the right answer, so the model fires it and never considers that there might be documentation worth consulting.
+
+Two implications:
+
+1. **Code mode + skills is a natural pair.** Ship the `CodeMode` transform on any server where skills-as-resources matter; you largely avoid the "model ignores resources" failure mode without needing to modify client system prompts.
+2. **For native MCP servers, the rule from `skills_as_resources/` is still the cheapest fix.** A 59-word rule turns the wrong native answer into the right one at a cost of 5 extra tool calls (2 → 7).
+
+Native-no-rule didn't produce an error — it produced a confidently wrong answer. The agent called `outbreak_alerts`, got 11 alerts (mixed active/cleared, mixed severities, including flu and norovirus), formatted them into a nice table, and reported them as "flagged outbreaks." No sign of uncertainty. This is the same failure class we saw with Opus fabricating ticket assignees in `skills_as_resources/`: plausible output, wrong facts, no way for downstream processes to tell the difference from correct output.
+
+Re-running these four cells takes ~5 minutes and costs ~$0.80. Commands:
+
+```bash
+./run_task.sh codemode_skills t4_outbreak sonnet
+./run_task.sh codemode_skills t4_outbreak sonnet --rule
+./run_task.sh native_skills   t4_outbreak sonnet
+./run_task.sh native_skills   t4_outbreak sonnet --rule
+```
+
 ### Sandbox safety
 
 FastMCP's default `MontySandboxProvider` enforces runtime limits. `sandbox_abuse.py` in this folder tests three runaway patterns against a sandbox configured with `max_duration_secs=2`, `max_memory=50MB`, `max_recursion_depth=50`:

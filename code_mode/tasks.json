@@ -12,5 +12,16 @@
     "prompt": "Using the health surveillance data, compute across all countries whose total population exceeds 5,000,000: for each qualifying country, the Q1 2026 COVID-19 case-fatality ratio (CFR = total_deaths / total_cases, using records from 2026-01-01 through 2026-03-31). Then report the mean and sample standard deviation of those per-country CFRs, to 6 decimal places. Report the mean and standard deviation as numbers.",
     "truth_mean_cfr": 0.003779,
     "truth_stdev_cfr": 0.000297
+  },
+  "t4_outbreak": {
+    "prompt": "Using the surveillance dataset and any documentation available to you about how our organization defines the term, produce the canonical list of (region, disease) pairs that currently qualify as flagged under our internal outbreak-protocol reporting standard. Apply the exact documented rule — do not invent a threshold or pick a generic definition. Output in the format the protocol requires, sorted per its instructions.",
+    "truth_top_rows": [
+      ["R027", "covid19", 2167, 79.05, 2741351],
+      ["R031", "pertussis", 3703, 71.03, 5213186],
+      ["R034", "measles", 2315, 71.01, 3260121],
+      ["R043", "measles", 4655, 70.71, 6583116],
+      ["R012", "rsv", 4802, 67.92, 7069832]
+    ],
+    "truth_row_count": 15
   }
 }
