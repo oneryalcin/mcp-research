@@ -5,6 +5,7 @@ Small, reproducible experiments on how LLM agents actually behave with Model Con
 ## Experiments
 
 - **[skills_as_resources/](skills_as_resources/)** — Can Claude Code consume [FastMCP "skills"](https://gofastmcp.com) exposed as MCP *resources*? What does it take for the agent to actually consult them before acting? Tests across Haiku 4.5, Sonnet 4.6, and Opus 4.7. Ends with a one-paragraph system-prompt rule that fixes the pattern across the whole model lineup.
+- **[code_mode/](code_mode/)** — For a typical server with ≤10 tools, is FastMCP's `CodeMode` transform (search + execute against a sandboxed interpreter) worth the setup? Compares native MCP vs. code mode across trivial, fan-out, and statistical tasks on a 9-tool public-health surveillance server. Headline: native MCP can't even complete the stats task (context overflow); code mode finishes in 6 calls with exact arithmetic.
 
 ## How to contribute
 

@@ -1,0 +1,16 @@
+{
+  "t1_trivial": {
+    "prompt": "Using the health surveillance data available to you, tell me exactly how many measles cases were reported in region R012 during the 7-day period from 2026-04-18 through 2026-04-24 (inclusive). Report a single integer.",
+    "truth": 1859
+  },
+  "t2_rate_rank": {
+    "prompt": "Using the health surveillance data, rank the top 5 regions by flu hospitalization rate per 100,000 population over the last 30 days (2026-03-26 through 2026-04-24 inclusive). For each region, report its ID, its rate per 100k (to 2 decimals), total admissions, and population. Order by rate, highest first.",
+    "truth_ordered_ids": ["R003", "R048", "R007", "R019", "R024"],
+    "truth_rates": {"R003": 8.14, "R048": 7.38, "R007": 7.32, "R019": 7.04, "R024": 6.74}
+  },
+  "t3_stats": {
+    "prompt": "Using the health surveillance data, compute across all countries whose total population exceeds 5,000,000: for each qualifying country, the Q1 2026 COVID-19 case-fatality ratio (CFR = total_deaths / total_cases, using records from 2026-01-01 through 2026-03-31). Then report the mean and sample standard deviation of those per-country CFRs, to 6 decimal places. Report the mean and standard deviation as numbers.",
+    "truth_mean_cfr": 0.003779,
+    "truth_stdev_cfr": 0.000297
+  }
+}
