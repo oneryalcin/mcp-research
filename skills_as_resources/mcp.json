@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "skills": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "--quiet", "--isolated", "--with", "fastmcp", "python", "REPLACE_WITH_ABSOLUTE_PATH/server.py"]
+    }
+  }
+}
