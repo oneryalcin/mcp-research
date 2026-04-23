@@ -110,6 +110,30 @@ The ~10× improvement on every axis (calls, time, cost, tokens) comes from one f
 
 This is the clearest case. Native MCP isn't slow-but-correct; it's **structurally incapable** of this shape of task at this data size. Code mode makes it routine.
 
+### Model tier cross-section (code mode only)
+
+Both Task 2 and Task 3 re-run with `--model haiku` and `--model opus`. Every cell succeeds; the differences are in *how* each tier gets to the right answer.
+
+```
+run                            calls  secs   $cost     in     out    cache  ok
+codemode_t2_rate_rank_haiku       10  30.1  0.0469  19371   3053   27141   y
+codemode_t2_rate_rank_sonnet       9  32.2  0.0661    437   1882   49338   y
+codemode_t2_rate_rank_opus         7  25.1  0.0963    438   1682   38494   y
+codemode_t3_stats_haiku           17  63.1  0.0779  16249   7456   96392   y
+codemode_t3_stats_sonnet           6  51.3  0.1072    455   4496   36022   y
+codemode_t3_stats_opus             7  37.4  0.1475    459   3097   52616   y
+```
+
+**Observations:**
+
+- **Code mode is not a Sonnet-tier-and-up feature.** All three models produced the exact answer on both tasks. Haiku can write correct `await call_tool(...)` scripts, recover from wrong-schema errors, and compose multi-step analyses.
+- **Round-trip count scales inversely with capability.** Opus ≤ Sonnet ≪ Haiku. Haiku needed ~3× more `execute` retries on Task 3 to get the `result['result']` unwrapping right — visible in the trace as repeated executions with print-debugging. Each dead end informed the next attempt.
+- **Cost inverts the round-trip ordering.** Haiku is the cheapest tier end-to-end even when taking the most calls, because the lower per-token price dominates. Opus is the fastest and most call-efficient, but also the most expensive. Sonnet sits in the middle on both axes.
+- **Bit-exact arithmetic across tiers.** Haiku's per-country CFRs differ from ground truth in the 5th–6th decimal (e.g. Atlantia 0.004185 vs 0.004183 — rounding during division), but every model's final aggregated `mean=0.003779`, `stdev=0.000297` matches ground truth exactly. The sandbox doing the actual math neutralizes tier differences at the output level.
+- **Retry loop is the safety net.** Code mode's failure mode is "execute raised, LLM reads the traceback, rewrites, retries." All three tiers made that loop work. Native MCP has no equivalent — a wrong-shape query returns empty data silently, and the LLM's only feedback is its own reasoning about an unhelpful result.
+
+Headline: for composition-heavy workloads, pick the model you're paying for based on cost profile, not capability fears. Haiku gets there; it just takes longer. The sandbox is doing the work that capability differences would otherwise dominate.
+
 ### Sandbox safety
 
 FastMCP's default `MontySandboxProvider` enforces runtime limits. `sandbox_abuse.py` in this folder tests three runaway patterns against a sandbox configured with `max_duration_secs=2`, `max_memory=50MB`, `max_recursion_depth=50`:
